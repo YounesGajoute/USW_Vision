@@ -1,0 +1,59 @@
+# Build tooling (avoids isolated-build failures; required before any sdist)
+setuptools>=75.0.0
+wheel>=0.45.0
+
+# Transitive deps (quiet pip warnings when `requests` is present in the venv)
+charset-normalizer>=2,<4
+idna>=2.5,<4
+
+# Flask and Extensions
+Flask==3.0.0
+Flask-CORS==4.0.0
+Flask-SocketIO==5.3.5
+Flask-Limiter==3.5.0
+Flask-Compress==1.14
+
+# Authentication and Security
+PyJWT==2.8.0
+bcrypt==4.1.2
+python-dotenv==1.0.0
+
+# Database
+SQLAlchemy==2.0.23
+alembic==1.13.1
+
+# Computer Vision (numpy 1.24 has no Python 3.13 wheels; use 2.x + matching OpenCV)
+numpy>=2.1.0,<2.3.0
+opencv-python>=4.10.0.84,<5
+Pillow>=11.0.0,<12
+
+# Raspberry Pi CSI: do NOT pip-install picamera2 on Pi — it skews against apt's libcamera.
+# Install: sudo apt install -y python3-libcamera python3-picamera2
+# The backend appends /usr/lib/python3*/dist-packages inside a venv so those modules resolve.
+RPi.GPIO==0.7.1; platform_machine == "aarch64" or platform_machine == "armv7l"
+
+# API and Validation
+marshmallow==3.20.1
+PyYAML==6.0.1
+
+# WebSocket
+python-socketio==5.10.0
+eventlet==0.33.3
+
+# Production WSGI Server
+gunicorn==21.2.0
+# gevent 23.x does not build on Python 3.13 (Cython / long); use 24.10+
+gevent>=24.10.3,<26
+
+# Monitoring and Logging
+sentry-sdk[flask]==1.39.2
+
+# Testing (optional)
+pytest==7.4.3
+pytest-flask==1.3.0
+pytest-cov==4.1.0
+
+# Development Tools (optional)
+black==23.12.1
+flake8==7.0.0
+mypy==1.8.0

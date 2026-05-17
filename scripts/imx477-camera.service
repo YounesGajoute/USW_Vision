@@ -1,0 +1,40 @@
+[Unit]
+Description=IMX477 Camera API Service
+Documentation=https://github.com/your-repo/vision_inspection_system
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/Bot/Desktop/inspection_vision
+Environment="PATH=/home/Bot/Desktop/inspection_vision/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+Environment="OPENCV_OPENCL_RUNTIME="
+Environment="OMP_NUM_THREADS=4"
+
+# Start the service
+ExecStart=/home/Bot/Desktop/inspection_vision/venv/bin/python3 -m uvicorn backend.imx477_camera:app --host 0.0.0.0 --port 8000 --workers 1 --log-level info
+
+# Restart policy
+Restart=always
+RestartSec=10
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Security and resource limits
+NoNewPrivileges=true
+PrivateTmp=true
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=imx477-camera
+
+[Install]
+WantedBy=multi-user.target
+

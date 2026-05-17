@@ -1,0 +1,30 @@
+# IMX477 Camera Backend Requirements
+# Raspberry Pi 5 + Picamera2 + OpenCV
+
+# Core frameworks
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+python-multipart==0.0.6
+
+# Camera and image processing
+picamera2==0.3.16
+opencv-python==4.8.1.78
+# For NEON-optimized OpenCV, compile from source with:
+# cmake -DENABLE_NEON=ON -DENABLE_VFPV3=ON ...
+
+# Performance monitoring
+psutil==5.9.6
+
+# Async support
+aiofiles==23.2.1
+websockets==12.0
+
+# Utility libraries
+numpy==1.24.3
+Pillow==10.1.0
+
+# Optional: Advanced features
+# scikit-image==0.22.0  # For advanced image quality metrics
+# imutils==0.5.4        # For convenience functions
+

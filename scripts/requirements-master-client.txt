@@ -1,0 +1,6 @@
+# Install on the *master* Raspberry Pi (or any PC) that controls the vision slave over the network:
+#   pip install -r scripts/requirements-master-client.txt
+
+requests>=2.28.0
+python-dotenv>=1.0.0
+python-socketio[client]>=5.10.0

@@ -1,0 +1,40 @@
+[Unit]
+Description=Vision Inspection — Next.js UI + Flask API
+Documentation=file:///home/bot/inspection_vision/docs/VISION_SLAVE_AND_SELF_CONFIGURATION.md
+# Local UI/API do not need "internet is up"; network-online can delay or wedge boot on some Pis.
+After=local-fs.target basic.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=bot
+Group=bot
+WorkingDirectory=/home/bot/inspection_vision
+
+# Production frontend; backend reads backend/config.yaml from cwd in app.py
+Environment=NODE_ENV=production
+Environment=PATH=/home/bot/inspection_vision/backend/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Optional overrides (create this file on the Pi if needed)
+EnvironmentFile=-/home/bot/inspection_vision/backend/.env
+
+# Build .next on first boot if missing; start stack; wait until 3000+5000 answer HTTP.
+ExecStart=/home/bot/inspection_vision/scripts/start_production.sh
+
+# First boot may run `npm run build` (slow on Pi); script waits up to 600s for HTTP on 3000+5000.
+TimeoutStartSec=3600
+
+Restart=always
+RestartSec=5
+StartLimitInterval=400
+StartLimitBurst=15
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=inspection-vision
+
+KillMode=mixed
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,24 @@
+{
+  "name": "Example — normalized ROIs (0–1), resolution-independent",
+  "description": "Optional roi_space normalized_01 for templates reused across different master resolutions. Fractions are relative to master width/height at run time.",
+  "roi_space": "normalized_01",
+  "tools": [
+    {
+      "id": "position-1",
+      "type": "position_adjust",
+      "name": "Alignment",
+      "color": "#22c55e",
+      "roi": { "x": 0.0625, "y": 0.0833, "width": 0.3125, "height": 0.3333 },
+      "threshold": 75
+    },
+    {
+      "id": "area-1",
+      "type": "area",
+      "name": "Feature A",
+      "color": "#3b82f6",
+      "roi": { "x": 0.4375, "y": 0.25, "width": 0.2188, "height": 0.2083 },
+      "threshold": 85,
+      "upperLimit": 100
+    }
+  ]
+}

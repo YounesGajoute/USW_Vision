@@ -1,0 +1,34 @@
+[Unit]
+Description=Vision Inspection System
+After=network.target
+
+[Service]
+Type=notify
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/vision_inspection_system/backend
+Environment="PATH=/home/pi/vision_inspection_system/venv/bin"
+Environment="FLASK_ENV=production"
+ExecStart=/home/pi/vision_inspection_system/venv/bin/gunicorn -c gunicorn_config.py wsgi:application
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=5
+PrivateTmp=true
+Restart=always
+RestartSec=10
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/pi/vision_inspection_system/backend/logs
+ReadWritePaths=/home/pi/vision_inspection_system/backend/database
+ReadWritePaths=/home/pi/vision_inspection_system/backend/storage
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vision-inspection
+
+[Install]
+WantedBy=multi-user.target

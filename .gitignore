@@ -1,0 +1,417 @@
+# ============================================
+# Vision Inspection System - Comprehensive .gitignore
+# ============================================
+
+# ==================== Python/Backend ====================
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.virtualenv/
+*.pyc
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Python build artifacts
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+pytest_cache/
+
+# Python environments
+pip-log.txt
+pip-delete-this-directory.txt
+.Python
+
+# ==================== Node.js/Next.js/Frontend ====================
+
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Next.js build output
+.next/
+out/
+build/
+dist/
+
+# Next.js cache
+.next/cache/
+
+# Production
+/build
+
+# Misc
+.DS_Store
+*.pem
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+
+# Turbo
+.turbo
+
+# Vercel
+.vercel
+
+# Typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# ==================== Database ====================
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+database/*.db
+database/*.sqlite
+backend/database/*.db
+backend/database/*.sqlite
+
+# Database backups (keep structure but ignore actual backup files)
+backend/storage/backups/*.json
+backend/storage/backups/*.zip
+backend/storage/backups/*.tar.gz
+
+# Keep the directory but ignore contents
+!backend/storage/backups/.gitkeep
+
+# ==================== Storage/Uploads ====================
+
+# Master images
+backend/storage/master_images/*
+!backend/storage/master_images/.gitkeep
+
+# Image history
+backend/storage/image_history/*
+!backend/storage/image_history/.gitkeep
+
+# Exports
+backend/storage/exports/*
+!backend/storage/exports/.gitkeep
+
+# Temporary uploads
+uploads/
+temp/
+tmp/
+
+# ==================== Logs ====================
+
+# Application logs
+*.log
+logs/
+backend/logs/*.log
+backend/*.log
+backend/app.log
+backend/backend.log
+
+# Keep log directories but ignore log files
+!backend/logs/.gitkeep
+!logs/.gitkeep
+
+# System logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ==================== IDE/Editor ====================
+
+# VSCode
+.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# JetBrains IDEs (PyCharm, WebStorm, IntelliJ, etc.)
+.idea/
+*.iml
+*.ipr
+*.iws
+.idea_modules/
+out/
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Vim
+*.swp
+*.swo
+*~
+.vim/
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# Cursor IDE
+.cursor/
+
+# ==================== OS-Specific ====================
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.AppleDouble
+.LSOverride
+
+# macOS Icon files
+Icon
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ==================== Security/Secrets ====================
+
+# API keys and secrets
+.env
+.env.local
+.env.*.local
+secrets/
+*.pem
+*.key
+*.cert
+*.crt
+id_rsa
+id_rsa.pub
+
+# Configuration with secrets
+config.local.yaml
+config.local.yml
+config.secret.yaml
+secrets.yaml
+
+# Authentication tokens
+token_*.txt
+*.token
+.tokens/
+token_GitHub_raspberry_push.txt
+
+# Security: Never commit actual tokens or secrets
+
+# ==================== Testing ====================
+
+# Test coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# Test artifacts
+test-results/
+screenshots/
+videos/
+
+# ==================== Build/Compile ====================
+
+# Python compiled files
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# JavaScript/TypeScript compiled
+*.js.map
+*.d.ts.map
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Note: We keep lib/ for Next.js project structure
+# Python lib/ directories are rarely used in this project
+
+# ==================== Documentation ====================
+
+# Generated documentation
+docs/_build/
+docs/.doctrees/
+site/
+
+# Sphinx documentation
+docs/_build/
+
+# MkDocs documentation
+/site
+
+# ==================== Misc ====================
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+*.save
+*~
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Lock files (optional - uncomment if you want to ignore)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# Archive files (for safety)
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# ==================== Project-Specific ====================
+
+# Local configuration overrides
+config.local.yaml
+local_settings.py
+
+# User-specific files
+.user
+*.user
+.local/
+
+# Development/debugging files
+debug.log
+debug/
+.debug/
+
+# Performance profiling
+*.prof
+*.profile
+
+# Cache directories
+.cache/
+cache/
+.parcel-cache/
+
+# Webpack
+.webpack/
+
+# Storybook
+storybook-static/
+
+# ==================== Hardware/System Specific ====================
+
+# Camera calibration data (if sensitive)
+calibration/*.dat
+calibration/*.cal
+
+# GPIO configuration (if contains sensitive pin mappings)
+# Uncomment if needed:
+# gpio_config.local.yaml
+
+# ==================== CI/CD ====================
+
+# CircleCI
+.circleci/local/
+
+# GitHub Actions
+.github/workflows/local/
+
+# Docker
+docker-compose.override.yml
+.docker/
+
+# ==================== Keep These Files ====================
+
+# Keep example/template files
+!example.env
+!.env.example
+!config.example.yaml
+!README.md
+!*.md
+
+# Keep directory structure
+!.gitkeep
+!**/.gitkeep
+
+# Keep important configuration templates
+!backend/config.yaml.example
+!.vscode/settings.json.example
+
+# ==================== END ====================

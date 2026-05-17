@@ -1,0 +1,57 @@
+{
+  "id": 1,
+  "name": "CLI test template",
+  "description": "from master client",
+  "template_schema_version": 2,
+  "roi_space": "wizard_640x480",
+  "roi_layout": {
+    "width": 640,
+    "height": 480,
+    "description": "ROIs are stored in wizard canvas pixels; scaled to each master on apply/run."
+  },
+  "tools": [
+    {
+      "id": "position-1",
+      "type": "position_adjust",
+      "name": "Alignment",
+      "color": "#22c55e",
+      "roi": {
+        "x": 40,
+        "y": 40,
+        "width": 200,
+        "height": 160
+      },
+      "threshold": 75
+    },
+    {
+      "id": "area-1",
+      "type": "area",
+      "name": "Feature A",
+      "color": "#3b82f6",
+      "roi": {
+        "x": 280,
+        "y": 120,
+        "width": 140,
+        "height": 100
+      },
+      "threshold": 85,
+      "upperLimit": 100
+    },
+    {
+      "id": "outline-1",
+      "type": "outline",
+      "name": "Edge band",
+      "color": "#f59e0b",
+      "roi": {
+        "x": 450,
+        "y": 80,
+        "width": 120,
+        "height": 320
+      },
+      "threshold": 70
+    }
+  ],
+  "reference_image_path": null,
+  "created_at": "2026-05-15T10:37:10.833771",
+  "updated_at": "2026-05-15T10:37:10.833771"
+}

@@ -1,0 +1,96 @@
+# Vision Inspection System - Backend Requirements
+# Production-ready Python dependencies
+
+# ==================== Web Framework ====================
+Flask==3.0.0
+Flask-CORS==4.0.0
+Flask-SocketIO==5.3.5
+
+# ==================== Production WSGI Server ====================
+gunicorn==21.2.0
+eventlet==0.33.3
+gevent==23.9.1
+gevent-websocket==0.10.1
+
+# ==================== Real-time Communication ====================
+python-socketio==5.10.0
+python-engineio==4.8.0
+
+# ==================== Database ====================
+# SQLite is built-in with Python
+# For PostgreSQL: psycopg2-binary==2.9.9
+# For MySQL: PyMySQL==1.1.0
+
+# ==================== Camera & Image Processing ====================
+opencv-python==4.8.1.78
+Pillow==10.1.0
+numpy==1.24.3
+
+# Raspberry Pi Camera (IMX477)
+picamera2==0.3.16  # For Raspberry Pi 5
+# Note: Requires libcamera-dev system package
+
+# ==================== GPIO Control ====================
+# RPi.GPIO==0.7.1  # For Raspberry Pi 4 and older
+# gpiozero==2.0.1  # Alternative GPIO library
+# For Raspberry Pi 5, use lgpio:
+# lgpio==0.2.2.0
+
+# ==================== Configuration ====================
+PyYAML==6.0.1
+python-dotenv==1.0.0
+
+# ==================== Monitoring & Logging ====================
+psutil==5.9.6  # System monitoring
+python-json-logger==2.0.7
+
+# ==================== Data Processing ====================
+pandas==2.1.3  # Optional: For data analysis
+# scikit-learn==1.3.2  # Optional: For ML features
+
+# ==================== Utilities ====================
+python-dateutil==2.8.2
+requests==2.31.0
+aiofiles==23.2.1
+
+# ==================== Testing & Development ====================
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-asyncio==0.21.1
+black==23.11.0
+flake8==6.1.0
+mypy==1.7.1
+
+# ==================== Production Monitoring ====================
+prometheus-client==0.19.0  # Optional: For Prometheus metrics
+# sentry-sdk==1.38.0  # Optional: For error tracking
+
+# ==================== Performance ====================
+ujson==5.8.0  # Faster JSON parsing
+msgpack==1.0.7  # Faster serialization
+
+# ==================== Security ====================
+cryptography==41.0.7
+python-jose==3.3.0  # For JWT tokens
+passlib==1.7.4  # For password hashing
+
+# ==================== Notes ====================
+# Raspberry Pi (libcamera): `python3-libcamera` is only available as an apt package.
+# Create the venv with system site-packages so Picamera2 can import libcamera, e.g.:
+#   python3 -m venv .venv --system-site-packages
+#   sudo apt install python3-libcamera python3-picamera2
+#
+# Install system dependencies first:
+# sudo apt-get install -y \
+#   libcamera-dev \
+#   libatlas-base-dev \
+#   libopencv-dev \
+#   python3-dev \
+#   build-essential
+
+# For IMX477 camera on Raspberry Pi 5:
+# See backend/requirements_imx477.txt
+
+# Production installation:
+# pip install -r requirements.txt --no-cache-dir
+

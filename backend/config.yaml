@@ -1,0 +1,96 @@
+system:
+  name: "Vision Inspection System"
+  version: "1.0.0"
+  
+camera:
+  # Picamera2 CSI index from `rpicam-still --list-cameras` (e.g. 0 = IMX296).
+  device: 0
+  # IMX296 native 1456×1088 (10-bit Bayer); larger requests are clamped to this size.
+  resolution: [1456, 1088]
+  # ISP output: RGB161616 = 16-bit/channel (demosaiced from 10-bit RAW). Falls back to RGB888 if unsupported.
+  isp_output_format: "RGB161616"
+  framerate: 30
+  # If false, no synthetic image when CSI fails (production / Ethernet slave). Default follows slave.require_real_hardware.
+  allow_test_pattern: true
+  
+database:
+  type: "sqlite"
+  path: "./database/vision.db"
+  
+storage:
+  master_images: "./storage/master_images"
+  image_history: "./storage/image_history"
+  tool_templates: "./storage/tool_templates"
+  history_limit: 100
+  
+api:
+  host: "0.0.0.0"
+  port: 5000
+  # Must include every browser Origin used to open the Next app (Socket.IO handshake sends Origin).
+  # Add the master Pi URL if you open a dashboard there, e.g. "http://192.168.1.50:3000"
+  cors_origins:
+    - "http://localhost:3000"
+    - "http://127.0.0.1:3000"
+    - "http://localhost"
+    - "https://localhost"
+    - "http://192.168.11.123"
+    - "https://192.168.11.123"
+    - "http://192.168.1.11:3000"
+    - "https://192.168.1.11:3000"
+    - "http://192.168.10.1:5175"
+    - "https://192.168.10.1:5175"
+    - "http://192.168.10.1:3000"
+    - "https://192.168.10.1:3000"
+    - "http://192.168.10.1"
+    - "https://192.168.10.1"
+  
+gpio:
+  outputs: [17, 18, 27, 22, 23, 24, 25, 8]
+  busy_output: 17  # OUT1 - BUSY signal
+  ok_output: 18    # OUT2 - OK signal
+  ng_output: 27    # OUT3 - NG signal
+
+# Ring / work light: one BCM GPIO → MOSFET module → LED bank (e.g. four 10 W SMD in parallel on one channel).
+# PWM dims the FET; pwm: false is full on/off only. Pick a pin NOT in gpio.outputs.
+# API still sends r,g,b; for white LEDs use equal values — brightness = max(r,g,b) → duty cycle.
+lighting:
+  gpio:
+    enabled: true
+    pin: 12
+    pwm: true
+    pwm_frequency: 1000
+    # At full brightness, stop soft-PWM and hold the pin steady (stronger MOSFET drive than "100%" PWM).
+    solid_at_full: true
+    # false only if your module turns the load on when the pin is LOW.
+    active_high: true
+    # If you need the absolute strongest steady drive and do not need dimming, use pwm: false (full GPIO on/off).
+  during_capture: true
+  settle_ms: 3
+  off_after_capture: true
+  use_for_api_capture: true
+  # Full intensity for captures (grayscale; e.g. [128,128,128] ≈ 50% if pwm: true)
+  default_rgb: [255, 255, 255]
+
+# Ethernet slave — matched to master VISION_URL=http://192.168.10.2:5000 + VISION_REMOTE_KEY (see backend/.env)
+slave:
+  # If true: refuse startup when hardware init fails; block inspection/live feed when camera is missing;
+  # default camera.allow_test_pattern becomes false unless you set it explicitly true.
+  require_real_hardware: false
+  # Master must send X-Vision-Remote-Key; key from VISION_REMOTE_API_KEY in backend/.env
+  require_remote_api_key: true
+
+# Remote Raspberry Pi (master at 192.168.10.1) — REST + Socket.IO on this Pi (192.168.10.2:5000)
+remote:
+  # Set in backend/.env as VISION_REMOTE_API_KEY (must match master VISION_REMOTE_KEY)
+  api_key: ""
+  # inherit: Socket.IO connect must send auth.remoteKey with the same secret as api_key
+  socketio_auth: inherit
+  # Used when socketio_auth: secondary (or env VISION_SOCKETIO_AUTH_KEY). Override mode with env VISION_SOCKETIO_AUTH_MODE
+  socketio_key: ""
+  # Socket.IO CORS: use "*" on trusted LAN so a Python master client can connect; tighten in production
+  socketio_cors: "*"
+  
+logging:
+  level: "INFO"
+  file: "./logs/vision.log"
+
