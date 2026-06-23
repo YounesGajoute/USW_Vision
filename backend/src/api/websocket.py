@@ -32,10 +32,24 @@ db_manager: Optional[DatabaseManager] = None
 tool_template_manager: Optional[Any] = None
 lighting_controller: Optional[Any] = None
 lighting_global_config: Dict[str, Any] = {}
+_lighting_api_settings: Dict[str, Any] = {}
 
 # Active sessions
 active_inspections: Dict[str, Dict] = {}
 active_feeds: Dict[str, Dict] = {}
+
+
+def stop_all_live_feeds() -> int:
+    """Stop every active live-feed thread (e.g. before remote camera recover from master Pi)."""
+    session_ids = list(active_feeds.keys())
+    for session_id in session_ids:
+        try:
+            active_feeds[session_id]["stop_flag"].set()
+        except Exception:
+            logger.debug("stop_flag set failed for %s", session_id, exc_info=True)
+    if session_ids:
+        logger.info("Stopped %s active live feed(s): %s", len(session_ids), session_ids)
+    return len(session_ids)
 
 
 def init_websocket(
@@ -45,11 +59,13 @@ def init_websocket(
     gpio=None,
     lighting=None,
     lighting_global: Optional[Dict[str, Any]] = None,
+    lighting_settings: Optional[Dict[str, Any]] = None,
     tool_templates=None,
 ):
     """Initialize WebSocket with dependencies."""
     global program_manager, camera_controller, gpio_controller, db_manager
     global tool_template_manager, lighting_controller, lighting_global_config
+    global _lighting_api_settings
     program_manager = pm
     camera_controller = cam
     gpio_controller = gpio
@@ -57,7 +73,53 @@ def init_websocket(
     tool_template_manager = tool_templates
     lighting_controller = lighting
     lighting_global_config = dict(lighting_global or {})
+    _lighting_api_settings = dict(lighting_settings or {})
     logger.info("WebSocket initialized with dependencies")
+
+
+def _parse_live_feed_capture_opts(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Parse subscribe_live_feed payload into capture parameters.
+
+    When useCaptureSettings is true (default), live preview uses the same manual
+    exposure and API lighting as POST /camera/capture.
+    """
+    payload = data or {}
+    use_capture = payload.get("useCaptureSettings", True)
+    if use_capture is False or use_capture == "false":
+        return {"use_capture_settings": False}
+
+    brightness_mode = payload.get("brightnessMode", "normal")
+    if brightness_mode not in ("normal", "hdr", "highgain"):
+        brightness_mode = "normal"
+
+    focus_value = int(payload.get("focusValue", 50))
+    focus_value = max(0, min(100, focus_value))
+
+    exposure_time = payload.get("exposureTime", payload.get("exposureTimeUs"))
+    analog_gain = payload.get("analogGain")
+    digital_gain = payload.get("digitalGain")
+
+    return {
+        "use_capture_settings": True,
+        "brightness_mode": brightness_mode,
+        "focus_value": focus_value,
+        "exposure_time_us": int(exposure_time) if exposure_time is not None else None,
+        "analog_gain": float(analog_gain) if analog_gain is not None else None,
+        "digital_gain": float(digital_gain) if digital_gain is not None else None,
+    }
+
+
+def _live_feed_lighting_on() -> bool:
+    from src.api.capture_lighting import api_lighting_on
+
+    return api_lighting_on(lighting_controller, _lighting_api_settings)
+
+
+def _live_feed_lighting_off_if(applied: bool) -> None:
+    from src.api.capture_lighting import api_lighting_off_if
+
+    api_lighting_off_if(applied, lighting_controller, _lighting_api_settings)
 
 
 # ==================== CONNECTION HANDLERS ====================
@@ -403,12 +465,17 @@ def subscribe_live_feed(data=None):
     """
     Start sending live camera frames.
     Emit: live_frame events (base64 lossless PNG, same encoding as capture/inspection)
+
+    Optional body fields (match POST /camera/capture when useCaptureSettings is true):
+      brightnessMode, focusValue, exposureTime, analogGain, digitalGain
     """
     session_id = request.sid
     
     try:
-        fps = (data or {}).get('fps', 15)
-        full_resolution = bool((data or {}).get('fullResolution', False))
+        payload = data or {}
+        fps = payload.get('fps', 15)
+        full_resolution = bool(payload.get('fullResolution', False))
+        capture_opts = _parse_live_feed_capture_opts(payload)
         # Full-resolution PNG frames are large; cap FPS for configuration preview.
         if full_resolution:
             fps = max(1, min(6, fps))
@@ -432,7 +499,12 @@ def subscribe_live_feed(data=None):
                 )
                 return
 
-        logger.info(f"Starting live feed (session: {session_id}, fps: {fps})")
+        logger.info(
+            "Starting live feed (session: %s, fps: %s, capture_settings: %s)",
+            session_id,
+            fps,
+            capture_opts.get("use_capture_settings"),
+        )
         
         # Create stop flag
         stop_flag = Event()
@@ -442,19 +514,24 @@ def subscribe_live_feed(data=None):
             'stop_flag': stop_flag,
             'fps': fps,
             'full_resolution': full_resolution,
+            'capture_opts': capture_opts,
             'thread': None
         }
         
         # Start feed thread
         thread = Thread(
             target=live_feed_loop,
-            args=(session_id, stop_flag, fps, full_resolution)
+            args=(session_id, stop_flag, fps, full_resolution, capture_opts)
         )
         thread.daemon = True
         thread.start()
         active_feeds[session_id]['thread'] = thread
         
-        emit('live_feed_started', {'fps': fps, 'fullResolution': full_resolution})
+        emit('live_feed_started', {
+            'fps': fps,
+            'fullResolution': full_resolution,
+            'useCaptureSettings': capture_opts.get('use_capture_settings', True),
+        })
         
     except Exception as e:
         logger.error(f"Subscribe live feed failed: {e}")
@@ -490,25 +567,54 @@ def unsubscribe_live_feed():
         emit('error', {'message': f'Failed to stop live feed: {str(e)}'})
 
 
-def live_feed_loop(session_id: str, stop_flag: Event, fps: int, full_resolution: bool = False):
+def live_feed_loop(
+    session_id: str,
+    stop_flag: Event,
+    fps: int,
+    full_resolution: bool = False,
+    capture_opts: Optional[Dict[str, Any]] = None,
+):
     """
     Continuously capture frames from the IMX296 and stream them to the client.
 
     Default: downscale to 640×480 for bandwidth. With full_resolution=True, stream
     native sensor size (up to 1456×1088) as lossless PNG — same quality as /camera/capture.
     Quality metrics always use a downscaled copy so scoring stays comparable.
+
+    When capture_opts['use_capture_settings'] is true, uses manual exposure and API
+    lighting (same as POST /camera/capture) for the duration of the stream.
     """
     import cv2
     import numpy as np
 
-    from src.utils.image_processing import NATIVE_CAPTURE_H, NATIVE_CAPTURE_W
+    from src.utils.image_processing import (
+        NATIVE_CAPTURE_H,
+        NATIVE_CAPTURE_W,
+        ensure_native_capture_rgb,
+    )
 
     PREVIEW_W, PREVIEW_H = 640, 480
     QUALITY_EVERY_N_FRAMES = 4
+    # Match POST /camera/capture: settle + controls on warmup and periodic refresh.
+    CAPTURE_GRADE_WARMUP_FRAMES = 3
+    CAPTURE_GRADE_RECONTROL_EVERY = 20
+    # Prevent multi-hour zombie streams (e.g. master UI tab left open overnight).
+    MAX_FEED_SECONDS = 3600
+    STALE_FRAME_RECOVER_SECONDS = 45.0
+    MAX_CONSECUTIVE_FAILURES = 12
+
+    opts = capture_opts or {"use_capture_settings": True}
+    use_capture_settings = bool(opts.get("use_capture_settings", True))
+    capture_grade = use_capture_settings and full_resolution
+    lighting_applied = False
 
     try:
+        if use_capture_settings:
+            lighting_applied = _live_feed_lighting_on()
         frame_interval = 1.0 / fps
         frame_count = 0
+        feed_started = time.monotonic()
+        last_success_mono = feed_started
         last_ts = time.time()
         last_quality: Dict[str, float] = {
             "brightness": 0.0,
@@ -523,39 +629,104 @@ def live_feed_loop(session_id: str, stop_flag: Event, fps: int, full_resolution:
 
         consecutive_failures = 0
         while not stop_flag.is_set():
+            if time.monotonic() - feed_started >= MAX_FEED_SECONDS:
+                logger.warning(
+                    "Live feed max duration (%ss) reached for session %s — stopping",
+                    MAX_FEED_SECONDS,
+                    session_id,
+                )
+                socketio.emit(
+                    "warning",
+                    {
+                        "message": (
+                            f"Live feed stopped after {MAX_FEED_SECONDS // 60} minutes "
+                            "(re-open preview to continue)."
+                        ),
+                        "code": "LIVE_FEED_MAX_DURATION",
+                    },
+                    room=session_id,
+                )
+                break
+
+            stale_s = time.monotonic() - last_success_mono
+            if stale_s >= STALE_FRAME_RECOVER_SECONDS and consecutive_failures > 0:
+                logger.warning(
+                    "Live feed: no successful frame for %.0fs (session=%s) — recovering camera",
+                    stale_s,
+                    session_id,
+                )
+                try:
+                    camera_controller.recover_camera()
+                except Exception:
+                    logger.debug("recover_camera raised", exc_info=True)
+                last_success_mono = time.monotonic()
+                consecutive_failures = 0
+                if capture_grade:
+                    frame_count = 0
+
             t0 = time.time()
             try:
-                # First frame applies Picamera2 controls + settle; rest are fast grab-only.
-                stream_fast = frame_count > 0
-                frame = camera_controller.capture_image(
-                    for_stream=stream_fast,
-                    live_preview=True,
-                )
+                # Capture-grade: periodic full control+settle like REST capture; else fast grab.
+                if capture_grade:
+                    stream_fast = not (
+                        frame_count < CAPTURE_GRADE_WARMUP_FRAMES
+                        or frame_count % CAPTURE_GRADE_RECONTROL_EVERY == 0
+                    )
+                else:
+                    stream_fast = frame_count > 0
+                if use_capture_settings:
+                    frame = camera_controller.capture_image(
+                        brightness_mode=opts.get("brightness_mode", "normal"),
+                        focus_value=int(opts.get("focus_value", 50)),
+                        exposure_time_us=opts.get("exposure_time_us"),
+                        analog_gain=opts.get("analog_gain"),
+                        digital_gain=opts.get("digital_gain"),
+                        for_stream=stream_fast,
+                        live_preview=False,
+                    )
+                else:
+                    frame = camera_controller.capture_image(
+                        for_stream=stream_fast,
+                        live_preview=True,
+                    )
 
                 if frame is None:
+                    consecutive_failures += 1
+                    if consecutive_failures in (3, 6, 9):
+                        try:
+                            camera_controller.recover_camera()
+                        except Exception:
+                            logger.debug("recover_camera raised", exc_info=True)
+                        if capture_grade:
+                            frame_count = 0
                     if not getattr(camera_controller, "allow_test_pattern", True):
-                        logger.error(
-                            "Live feed: capture failed and test pattern disabled — stopping stream"
-                        )
-                        socketio.emit(
-                            "error",
-                            {
-                                "code": "CAMERA_UNAVAILABLE",
-                                "message": "Camera capture failed; stream stopped (production mode)",
-                            },
-                            room=session_id,
-                        )
-                        socketio.emit(
-                            "live_feed_stopped",
-                            {"message": "Live feed stopped (camera unavailable)", "code": "CAMERA_UNAVAILABLE"},
-                            room=session_id,
-                        )
-                        break
+                        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                            logger.error(
+                                "Live feed: capture failed %s times — stopping stream",
+                                consecutive_failures,
+                            )
+                            socketio.emit(
+                                "error",
+                                {
+                                    "code": "CAMERA_UNAVAILABLE",
+                                    "message": "Camera capture failed; stream stopped (production mode)",
+                                },
+                                room=session_id,
+                            )
+                            socketio.emit(
+                                "live_feed_stopped",
+                                {
+                                    "message": "Live feed stopped (camera unavailable)",
+                                    "code": "CAMERA_UNAVAILABLE",
+                                },
+                                room=session_id,
+                            )
+                            break
+                        continue
                     logger.warning(
                         "Live feed: capture_image returned None; using test pattern (dev only)"
                     )
                     frame = camera_controller._generate_test_pattern()
-                    consecutive_failures += 1
                     if consecutive_failures >= 5:
                         socketio.emit(
                             "warning",
@@ -567,8 +738,18 @@ def live_feed_loop(session_id: str, stop_flag: Event, fps: int, full_resolution:
                         consecutive_failures = 0
                 else:
                     consecutive_failures = 0
+                    last_success_mono = time.monotonic()
 
                 if frame is not None:
+                    if use_capture_settings or full_resolution:
+                        try:
+                            frame, _ = ensure_native_capture_rgb(frame)
+                        except Exception:
+                            logger.debug(
+                                "live_frame ensure_native_capture_rgb skipped",
+                                exc_info=True,
+                            )
+
                     h, w = int(frame.shape[0]), int(frame.shape[1])
                     stream_frame = frame
                     if not full_resolution and (w, h) != (PREVIEW_W, PREVIEW_H):
@@ -614,7 +795,13 @@ def live_feed_loop(session_id: str, stop_flag: Event, fps: int, full_resolution:
                     frame_count += 1
 
             except Exception as e:
+                consecutive_failures += 1
                 logger.error(f"Live feed frame error: {e}")
+                if consecutive_failures in (1, 4, 8):
+                    try:
+                        camera_controller.recover_camera()
+                    except Exception:
+                        logger.debug("recover_camera raised", exc_info=True)
 
             # Pace to requested FPS
             elapsed_this_frame = time.time() - t0
@@ -626,6 +813,8 @@ def live_feed_loop(session_id: str, stop_flag: Event, fps: int, full_resolution:
     except Exception as e:
         logger.error(f"Live feed loop crashed: {e}\n{traceback.format_exc()}")
     finally:
+        if use_capture_settings:
+            _live_feed_lighting_off_if(lighting_applied)
         active_feeds.pop(session_id, None)
 
 

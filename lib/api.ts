@@ -3,6 +3,7 @@
  * Handles all REST API communication with backend
  */
 
+import { formatFetchError, resolveApiBaseUrl } from '@/lib/api-base-url';
 import type {
   Program,
   ProgramConfig,
@@ -26,8 +27,8 @@ class APIClient {
   /** Optional shared secret for Pi-to-Pi calls to /remote/* (matches slave `remote.api_key`). */
   visionRemoteKey?: string;
 
-  constructor(baseURL: string = '/api', visionRemoteKey?: string) {
-    this.baseURL = baseURL;
+  constructor(baseURL?: string, visionRemoteKey?: string) {
+    this.baseURL = baseURL ?? resolveApiBaseUrl();
     this.visionRemoteKey = visionRemoteKey;
   }
 
@@ -55,10 +56,15 @@ class APIClient {
       },
     };
 
+    const timeoutMs =
+      options.method === 'DELETE' ? 120_000 : 60_000;
+
     try {
-      const response = await fetch(url, config);
-      
-      // Handle non-OK responses
+      const response = await fetch(url, {
+        ...config,
+        signal: options.signal ?? AbortSignal.timeout(timeoutMs),
+      });
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: response.statusText }));
         throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
@@ -67,7 +73,7 @@ class APIClient {
       return await response.json();
     } catch (error) {
       console.error(`API request failed: ${endpoint}`, error);
-      throw error;
+      throw new Error(formatFetchError(error, endpoint));
     }
   }
 

@@ -305,6 +305,7 @@ def create_app(config_name=None):
         gpio_controller,
         lighting=inspection_lighting,
         lighting_global=lighting_global_env,
+        lighting_settings=lighting_settings,
         tool_templates=tool_template_manager,
     )
     logger.info("WebSocket initialized")

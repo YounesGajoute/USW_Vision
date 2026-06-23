@@ -192,25 +192,15 @@ def init_api(
 
 def _api_lighting_on() -> bool:
     """Return True if illumination was applied (caller should call _api_lighting_off_if)."""
-    lc = lighting_controller
-    if not lc or not lc.is_ready():
-        return False
-    if not _lighting_api_settings.get("use_for_api_capture", True):
-        return False
-    rgb = _lighting_api_settings.get("default_rgb", [255, 255, 255])
-    r, g, b = (int(rgb[0]) & 0xFF, int(rgb[1]) & 0xFF, int(rgb[2]) & 0xFF)
-    lc.fill(r, g, b)
-    lc.show()
-    time.sleep(float(_lighting_api_settings.get("settle_ms", 2.0)) / 1000.0)
-    return True
+    from src.api.capture_lighting import api_lighting_on
+
+    return api_lighting_on(lighting_controller, _lighting_api_settings)
 
 
 def _api_lighting_off_if(applied: bool) -> None:
-    if not applied or not lighting_controller or not lighting_controller.is_ready():
-        return
-    if not _lighting_api_settings.get("off_after_capture", True):
-        return
-    lighting_controller.off()
+    from src.api.capture_lighting import api_lighting_off_if
+
+    api_lighting_off_if(applied, lighting_controller, _lighting_api_settings)
 
 
 def _make_api_lighting_hooks() -> Tuple[Optional[Callable[[], None]], Optional[Callable[[], None]]]:
@@ -335,6 +325,7 @@ def update_program(program_id):
         }), 200
         
     except ValueError as e:
+        logger.warning(f"Program update failed - validation error: {e}")
         return jsonify({'error': str(e)}), 400 if 'not found' not in str(e) else 404
     except Exception as e:
         logger.error(f"Update program failed: {e}")
@@ -561,11 +552,20 @@ def upload_master_image():
         import numpy as np
         import cv2
         
-        file_bytes = np.frombuffer(file.read(), np.uint8)
+        raw = file.read()
+        if not raw:
+            return jsonify({'error': 'Empty image upload'}), 400
+        file_bytes = np.frombuffer(raw, np.uint8)
         image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
         
         if image is None:
-            return jsonify({'error': 'Invalid image file'}), 400
+            hint = (
+                'Incomplete or corrupt PNG/JPEG (upload may have been interrupted). '
+                'Capture again or re-select the file.'
+                if len(raw) < 256
+                else 'Invalid image file (could not decode PNG/JPEG)'
+            )
+            return jsonify({'error': hint}), 400
         
         # Convert BGR to RGB
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)

@@ -5,11 +5,13 @@
 
 import { io, Socket } from 'socket.io-client';
 import type {
+  CaptureOptions,
   InspectionResultEvent,
   LiveFrameEvent,
   SystemStatusEvent,
   ErrorEvent,
 } from '@/types';
+import { liveFeedSubscribePayload } from '@/lib/live-feed-options';
 
 type EventCallback<T = unknown> = (data: T) => void;
 
@@ -210,25 +212,38 @@ class WebSocketClient {
     this.socket.emit('stop_inspection');
   }
 
-  subscribeLiveFeed(fps: number = 20, fullResolution: boolean = false): void {
+  subscribeLiveFeed(
+    fps: number = 20,
+    fullResolution: boolean = false,
+    captureOptions?: CaptureOptions
+  ): void {
     if (!this.socket?.connected) {
       throw new Error('WebSocket not connected');
     }
-    this.socket.emit('subscribe_live_feed', { fps, fullResolution });
+    this.socket.emit(
+      'subscribe_live_feed',
+      liveFeedSubscribePayload(fps, fullResolution, captureOptions)
+    );
   }
 
   /**
    * Subscribe after Socket.IO finishes connecting. Fixes a race where `connect()` is async
    * and `subscribeLiveFeed()` ran before `connected`, so the `connected` handler was never scheduled in time.
    * @param fullResolution Stream native IMX296 frames (1456×1088 PNG); use lower fps (≤6).
+   * @param captureOptions Same manual exposure + lighting as POST /camera/capture (default: system defaults).
    */
-  subscribeLiveFeedWhenReady(fps: number = 20, fullResolution: boolean = false): () => void {
+  subscribeLiveFeedWhenReady(
+    fps: number = 20,
+    fullResolution: boolean = false,
+    captureOptions?: CaptureOptions
+  ): () => void {
     let cancelled = false;
     let sent = false;
+    const payload = liveFeedSubscribePayload(fps, fullResolution, captureOptions);
     const send = () => {
       if (cancelled || sent || !this.socket?.connected) return;
       sent = true;
-      this.socket.emit('subscribe_live_feed', { fps, fullResolution });
+      this.socket.emit('subscribe_live_feed', payload);
     };
 
     const onConnected = () => {

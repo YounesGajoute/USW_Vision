@@ -36,6 +36,8 @@ import {
   mergeWizardMasterFeatures,
   previewDetectionToolMatch,
   imageBase64ToWizardFrame640,
+  enableHighQualityCanvasScaling,
+  rawBase64ToImageDataUrl,
   computeRoiToolFeedbackCanvas,
   applyTemplateToolsToWizardCanvas,
   normalizeToolRoisForWizardMasterImage,
@@ -46,6 +48,15 @@ import {
   type PreviewToolMatch,
   type RoiFeedbackOptions,
 } from '@/lib/inspection-engine';
+import {
+  analyzeToolJudgment,
+  displayScore,
+  judgmentPass,
+  judgmentTone,
+  mergePipelineScores,
+  type ToolJudgmentSnapshot,
+} from '@/lib/toolJudgment';
+import { RealTimeJudgmentStrip } from '@/components/wizard/RealTimeJudgmentStrip';
 
 interface Step3Props {
   configuredTools: ToolConfig[];
@@ -121,7 +132,8 @@ function drawInspectionRoiDecoration(
   roi: ROI,
   color: string,
   kind: RoiDrawKind,
-  layer: RoiDecorationLayer = 'all'
+  layer: RoiDecorationLayer = 'all',
+  judgmentOverlay?: 'pass' | 'fail' | null
 ) {
   const { x, y, width: w, height: h } = roi;
   if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) return;
@@ -198,6 +210,15 @@ function drawInspectionRoiDecoration(
         ctx.strokeRect(x + inset + 2, y + inset + 2, w - (inset + 2) * 2, h - (inset + 2) * 2);
       }
     }
+  }
+
+  if (drawStroke && judgmentOverlay && (kind === 'tuning' || kind === 'insight')) {
+    const glow =
+      judgmentOverlay === 'pass' ? 'rgba(34, 197, 94, 0.55)' : 'rgba(239, 68, 68, 0.55)';
+    ctx.strokeStyle = glow;
+    ctx.lineWidth = 5;
+    ctx.setLineDash([]);
+    ctx.strokeRect(x - 4, y - 4, w + 8, h + 8);
   }
 
   if (drawStroke) {
@@ -378,36 +399,6 @@ function drawRoiProcessingInset(
   ctx.restore();
 }
 
-function ThresholdMeter({
-  rate,
-  threshold: thr,
-  upper,
-}: {
-  rate: number;
-  threshold: number;
-  upper?: number;
-}) {
-  return (
-    <div className="relative mt-2 h-3 w-full overflow-hidden rounded-full bg-black/15 dark:bg-white/10">
-      <div
-        className="absolute h-full rounded-l-full bg-primary/80 transition-[width] duration-75 ease-out"
-        style={{ width: `${Math.min(100, Math.max(0, rate))}%` }}
-      />
-      <div
-        className="absolute top-0 h-full w-0.5 bg-foreground shadow-sm"
-        style={{ left: `calc(${thr}% - 1px)` }}
-        title="Threshold"
-      />
-      {upper != null && (
-        <div
-          className="absolute top-0 h-full w-0.5 bg-orange-500"
-          style={{ left: `calc(${upper}% - 1px)` }}
-          title="Upper limit"
-        />
-      )}
-    </div>
-  );
-}
 
 function cloneToolsWithNewIds(tools: ToolConfig[]): ToolConfig[] {
   return tools.map((tool) => ({
@@ -441,6 +432,7 @@ export default function Step3ToolConfiguration({
   configuredTools,
   setConfiguredTools,
   masterImageData,
+  captureOptions,
   onToolTemplateSaved,
   programId = null,
   programName = null,
@@ -480,6 +472,9 @@ export default function Step3ToolConfiguration({
   /** Same ROI/threshold evaluated on the latest live frame (runtime sanity check). */
   const [previewMatchLive, setPreviewMatchLive] = useState<PreviewToolMatch | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
+  /** Fast master-ROI metric for instant threshold strip (browser-side estimate). */
+  const [judgmentSnapshot, setJudgmentSnapshot] = useState<ToolJudgmentSnapshot | null>(null);
+  const [judgmentBusy, setJudgmentBusy] = useState(false);
   /** Latest match % from image processing; updated async. Pass/fail vs slider uses this + current threshold for instant feedback. */
   const [rateSnapshot, setRateSnapshot] = useState<{ master: number; live: number | null } | null>(null);
   /** Tune threshold only (saved ROI) without entering ROI edit mode. */
@@ -503,6 +498,8 @@ export default function Step3ToolConfiguration({
 
   const liveImageRef = useRef<HTMLImageElement | null>(null);
   const previewSeq = useRef(0);
+  const judgmentSeq = useRef(0);
+  const judgmentToneRef = useRef<'pass' | 'fail' | 'muted'>('muted');
   const feedbackSeq = useRef(0);
   const roiFeedbackMasterRef = useRef<HTMLCanvasElement | null>(null);
   const roiFeedbackLiveRef = useRef<HTMLCanvasElement | null>(null);
@@ -617,10 +614,13 @@ export default function Step3ToolConfiguration({
     };
   }, [masterImageData, toolRoiSignature, setConfiguredTools]);
 
+  /** Live backdrop: draw full-resolution stream with high-quality downscale (no 640 re-encode). */
   useEffect(() => {
-    if (!wizardFrameLive) {
-      liveImageRef.current = null;
-      setNeedsRedraw(true);
+    if (!fullResLiveB64) {
+      if (!wizardFrameLive) {
+        liveImageRef.current = null;
+        setNeedsRedraw(true);
+      }
       return;
     }
     const img = new Image();
@@ -628,8 +628,8 @@ export default function Step3ToolConfiguration({
       liveImageRef.current = img;
       setNeedsRedraw(true);
     };
-    img.src = wizardFrameLive;
-  }, [wizardFrameLive]);
+    img.src = rawBase64ToImageDataUrl(fullResLiveB64);
+  }, [fullResLiveB64, wizardFrameLive]);
 
   /** Prefer live video once frames arrive so ROI work matches production lighting. */
   useEffect(() => {
@@ -695,14 +695,15 @@ export default function Step3ToolConfiguration({
     let mounted = true;
 
     const handleFrame = async (data: { image?: string }) => {
-      if (!mounted || livePausedRef.current || !data.image || liveFrameBusyRef.current) return;
+      if (!mounted || livePausedRef.current || !data.image) return;
+      setFullResLiveB64(data.image);
+      setLiveCaptureError(null);
+      if (liveFrameBusyRef.current) return;
       liveFrameBusyRef.current = true;
       try {
         const norm = await imageBase64ToWizardFrame640(data.image);
         if (!mounted || livePausedRef.current) return;
-        setFullResLiveB64(data.image);
         setWizardFrameLive(norm);
-        setLiveCaptureError(null);
       } catch (e) {
         if (mounted && !livePausedRef.current) {
           setLiveCaptureError(
@@ -723,7 +724,7 @@ export default function Step3ToolConfiguration({
 
     ws.on('live_frame', handleFrame);
     ws.on('error', handleSocketError);
-    const cancelPendingSubscribe = ws.subscribeLiveFeedWhenReady(4, true);
+    const cancelPendingSubscribe = ws.subscribeLiveFeedWhenReady(4, true, captureOptions);
 
     return () => {
       mounted = false;
@@ -732,7 +733,7 @@ export default function Step3ToolConfiguration({
       ws.off('error', handleSocketError);
       ws.unsubscribeLiveFeed();
     };
-  }, [wizardFrameMaster, livePaused]);
+  }, [wizardFrameMaster, livePaused, captureOptions]);
 
   // Match preview: ROI edit, tuning mode, or idle insight (saved tools — always see master + live vs threshold).
   useEffect(() => {
@@ -919,6 +920,74 @@ export default function Step3ToolConfiguration({
     masterFeaturesState,
   ]);
 
+  /** ROI + tool type for fast master-image judgment (wizard canvas coordinates). */
+  const judgmentTarget = useMemo(() => {
+    const tuningTool = tuningToolId ? configuredTools.find((t) => t.id === tuningToolId) : undefined;
+    const insightTool =
+      thresholdInsightToolId && editMode === 'none' && !tuningToolId
+        ? configuredTools.find((t) => t.id === thresholdInsightToolId)
+        : undefined;
+
+    const toolType: ToolType | null =
+      editMode !== 'none' || tuningToolId ? selectedToolType : insightTool?.type ?? selectedToolType;
+
+    if (!toolType || toolType === 'position_adjust') return null;
+    if (editMode === 'none' && !tuningTool && !insightTool) return null;
+
+    const roiOk =
+      currentRect && currentRect.width > 6 && currentRect.height > 6 ? currentRect : null;
+    const existingFromEdit = editingExistingToolId
+      ? configuredTools.find((x) => x.id === editingExistingToolId)
+      : null;
+    const existing = existingFromEdit ?? tuningTool ?? insightTool ?? null;
+    const roi = roiOk ?? existing?.roi ?? null;
+    if (!roi) return null;
+
+    return { toolType, roi, toolId: existing?.id };
+  }, [
+    selectedToolType,
+    editMode,
+    currentRect,
+    editingExistingToolId,
+    tuningToolId,
+    thresholdInsightToolId,
+    configuredTools,
+  ]);
+
+  // Fast master + live ROI metrics (80ms debounce); slider compares instantly to cached scores.
+  useEffect(() => {
+    if (!judgmentTarget || !masterImageData) {
+      setJudgmentSnapshot(null);
+      setJudgmentBusy(false);
+      return;
+    }
+
+    setJudgmentBusy(true);
+    const seq = ++judgmentSeq.current;
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await analyzeToolJudgment(
+          masterImageData,
+          judgmentTarget.toolType,
+          judgmentTarget.roi,
+          {
+            roiInWizardSpace: true,
+            toolId: judgmentTarget.toolId,
+            masterFeatures: masterFeaturesState,
+            liveImageBase64: wizardFrameLive,
+          }
+        );
+        if (seq === judgmentSeq.current) setJudgmentSnapshot(result);
+      } catch {
+        if (seq === judgmentSeq.current) setJudgmentSnapshot(null);
+      } finally {
+        if (seq === judgmentSeq.current) setJudgmentBusy(false);
+      }
+    }, 80);
+
+    return () => window.clearTimeout(timer);
+  }, [judgmentTarget, masterImageData, masterFeaturesState, wizardFrameLive]);
+
   // ROI-sized processing previews — include idle insight (saved ROI) so mask matches the tool you are judging.
   useEffect(() => {
     const tuningTool = tuningToolId ? configuredTools.find((t) => t.id === tuningToolId) : undefined;
@@ -1032,6 +1101,7 @@ export default function Step3ToolConfiguration({
     selectedToolType,
     tuningToolId,
     thresholdInsightToolId,
+    threshold,
   ]);
 
   // Trigger redraw on state changes
@@ -1052,6 +1122,8 @@ export default function Step3ToolConfiguration({
     tuningToolId,
     thresholdInsightToolId,
     mousePos,
+    threshold,
+    judgmentSnapshot,
   ]);
 
   const drawCanvas = () => {
@@ -1073,8 +1145,10 @@ export default function Step3ToolConfiguration({
 
     // Draw backdrop: live camera (normalized) or master image
     if (backdrop === 'live' && liveImageRef.current) {
+      enableHighQualityCanvasScaling(drawingContext);
       drawingContext.drawImage(liveImageRef.current, 0, 0, 640, 480);
     } else if (masterImageRef.current) {
+      enableHighQualityCanvasScaling(drawingContext);
       drawingContext.drawImage(masterImageRef.current, 0, 0, 640, 480);
     } else {
       drawingContext.fillStyle = '#64748b';
@@ -1295,7 +1369,10 @@ export default function Step3ToolConfiguration({
       else if (isInsight) kind = 'insight';
 
       const roiDraw = clampRoiToWizardCanvas(tool.roi);
-      drawInspectionRoiDecoration(ctx, roiDraw, tool.color, kind, layer);
+      const tone = judgmentToneRef.current;
+      const overlay =
+        (isTuning || isInsight) && tone !== 'muted' ? (tone as 'pass' | 'fail') : null;
+      drawInspectionRoiDecoration(ctx, roiDraw, tool.color, kind, layer, overlay);
 
       if (drawLabels) {
         const title = `${idx}. ${tool.name}`;
@@ -1848,6 +1925,31 @@ export default function Step3ToolConfiguration({
     previewMatchLive,
   ]);
 
+  const judgmentWithPipeline = useMemo(
+    () =>
+      mergePipelineScores(judgmentSnapshot, {
+        master: passMeta.mRate,
+        live: passMeta.lRate,
+      }),
+    [judgmentSnapshot, passMeta.mRate, passMeta.lRate]
+  );
+
+  const instantJudgmentPass = useMemo(
+    () =>
+      judgmentPass(
+        displayScore(judgmentWithPipeline?.master),
+        threshold[0],
+        activeContextTool?.upperLimit
+      ),
+    [judgmentWithPipeline, threshold, activeContextTool?.upperLimit]
+  );
+
+  useEffect(() => {
+    const t = judgmentTone(instantJudgmentPass);
+    judgmentToneRef.current = t === 'warn' ? 'muted' : t;
+    setNeedsRedraw(true);
+  }, [instantJudgmentPass]);
+
   const combinedVerdict = useMemo(() => {
     const m = passMeta.mPass;
     const l = passMeta.lPass;
@@ -2096,8 +2198,8 @@ export default function Step3ToolConfiguration({
         <h2 className="text-3xl font-bold">Step 2: Tool Configuration</h2>
         <p className="text-sm text-muted-foreground mt-2 max-w-4xl">
           In the configuration wizard, this step is where you define inspection regions and limits. Use live or master
-          backdrop, watch the real-time judgment while adjusting threshold, and save thresholds from the tool list when you
-          only need to change the limit. Save a tool template (tools only — no stored image) or apply one to any master or layout capture.
+          backdrop, use the real-time judgment strip below the threshold slider (instant pass/fail on the master image), and
+          save thresholds from the tool list when you only need to change the limit. Save a tool template (tools only — no stored image) or apply one to any master or layout capture.
         </p>
       </div>
 
@@ -2382,206 +2484,6 @@ export default function Step3ToolConfiguration({
                   </div>
                 )}
 
-              {panelToolType !== 'position_adjust' && (
-                <div className="rounded-lg border-2 border-foreground/10 bg-gradient-to-br from-slate-50 to-slate-100 p-4 dark:from-slate-900 dark:to-slate-950 space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
-                      Real-time judgment
-                    </span>
-                    {previewBusy && passMeta.mRate == null && (
-                      <span className="text-xs text-muted-foreground animate-pulse">Sampling…</span>
-                    )}
-                    {previewBusy && passMeta.mRate != null && (
-                      <span className="text-xs text-muted-foreground">Updating scene…</span>
-                    )}
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div
-                      className={`rounded-xl border-2 p-4 transition-colors duration-75 ${
-                        passMeta.mPass === true
-                          ? 'border-green-500 bg-green-50 dark:bg-green-950/40'
-                          : passMeta.mPass === false
-                            ? 'border-red-500 bg-red-50 dark:bg-red-950/40'
-                            : 'border-muted bg-muted/30'
-                      }`}
-                    >
-                      <div className="text-xs font-semibold uppercase text-muted-foreground">Master (reference)</div>
-                      {passMeta.mRate != null ? (
-                        <>
-                          {passMeta.mEdgeFill != null && (
-                            <div className="mt-2 space-y-0.5">
-                              <div className="text-4xl font-black tabular-nums leading-tight text-foreground">
-                                {passMeta.mEdgeFill.toFixed(2)}
-                                <span className="text-lg font-bold text-muted-foreground">%</span>
-                              </div>
-                              <p className="text-xs font-medium text-muted-foreground">
-                                Edge fill (ROI){' '}
-                                <span className="text-foreground/80">— same scale as live for lighting / focus</span>
-                              </p>
-                            </div>
-                          )}
-                          <div
-                            className={
-                              passMeta.mEdgeFill != null ? 'mt-3 pt-3 border-t border-foreground/10 space-y-1' : 'space-y-1'
-                            }
-                          >
-                            <div
-                              className={
-                                passMeta.mEdgeFill != null
-                                  ? 'text-2xl font-bold tabular-nums leading-tight'
-                                  : 'text-4xl font-black tabular-nums leading-tight'
-                              }
-                            >
-                              {passMeta.mRate.toFixed(1)}
-                              <span
-                                className={
-                                  passMeta.mEdgeFill != null
-                                    ? 'text-base font-bold text-muted-foreground'
-                                    : 'text-lg font-bold text-muted-foreground'
-                                }
-                              >
-                                %
-                              </span>
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              Match vs saved template
-                              {passMeta.mEdgeFill != null && (
-                                <>
-                                  {' '}
-                                  <span className="italic">
-                                    (reads ~100% on the master stillframe by definition; the slider uses this row)
-                                  </span>
-                                </>
-                              )}
-                            </p>
-                          </div>
-                          <div className="text-lg font-bold mt-1">
-                            {passMeta.mPass ? 'PASS' : 'FAIL'}
-                            <span className="text-sm font-normal text-muted-foreground"> · limit {threshold[0]}%</span>
-                          </div>
-                          <div className="mt-1">
-                            {passMeta.mPass === true && (
-                              <span className="text-xs font-bold uppercase tracking-wide text-green-700 dark:text-green-300">
-                                In accepted range (master)
-                              </span>
-                            )}
-                            {passMeta.mPass === false && (
-                              <span className="text-xs font-bold uppercase tracking-wide text-red-700 dark:text-red-300">
-                                Out of range (master)
-                              </span>
-                            )}
-                          </div>
-                          {passMeta.upper != null ? (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Allowed band: {threshold[0]}% – {passMeta.upper}% match
-                            </p>
-                          ) : (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Margin vs limit:{' '}
-                              <span className="font-mono font-semibold text-foreground">
-                                {passMeta.mMargin != null && passMeta.mMargin >= 0 ? '+' : ''}
-                                {passMeta.mMargin?.toFixed(1) ?? '—'} pts
-                              </span>{' '}
-                              (positive = safer)
-                            </p>
-                          )}
-                          <ThresholdMeter rate={passMeta.mRate} threshold={threshold[0]} upper={passMeta.upper} />
-                        </>
-                      ) : (
-                        <p className="text-sm text-muted-foreground py-6">Waiting for first reading…</p>
-                      )}
-                    </div>
-                    <div
-                      className={`rounded-xl border-2 p-4 transition-colors duration-75 ${
-                        passMeta.lPass === true
-                          ? 'border-green-500 bg-green-50 dark:bg-green-950/40'
-                          : passMeta.lPass === false
-                            ? 'border-red-500 bg-red-50 dark:bg-red-950/40'
-                            : 'border-muted bg-muted/30'
-                      }`}
-                    >
-                      <div className="text-xs font-semibold uppercase text-muted-foreground">Live camera</div>
-                      {passMeta.lRate != null ? (
-                        <>
-                          {passMeta.lEdgeFill != null && (
-                            <div className="mt-2 space-y-0.5">
-                              <div className="text-4xl font-black tabular-nums leading-tight text-foreground">
-                                {passMeta.lEdgeFill.toFixed(2)}
-                                <span className="text-lg font-bold text-muted-foreground">%</span>
-                              </div>
-                              <p className="text-xs font-medium text-muted-foreground">
-                                Edge fill (ROI){' '}
-                                <span className="text-foreground/80">— compare to master edge fill above</span>
-                              </p>
-                            </div>
-                          )}
-                          <div
-                            className={
-                              passMeta.lEdgeFill != null ? 'mt-3 pt-3 border-t border-foreground/10 space-y-1' : 'space-y-1'
-                            }
-                          >
-                            <div
-                              className={
-                                passMeta.lEdgeFill != null
-                                  ? 'text-2xl font-bold tabular-nums leading-tight'
-                                  : 'text-3xl font-black tabular-nums leading-tight'
-                              }
-                            >
-                              {passMeta.lRate.toFixed(1)}
-                              <span
-                                className={
-                                  passMeta.lEdgeFill != null
-                                    ? 'text-sm font-bold text-muted-foreground'
-                                    : 'text-base font-bold text-muted-foreground'
-                                }
-                              >
-                                %
-                              </span>
-                            </div>
-                            <p className="text-xs text-muted-foreground">Match vs saved template (threshold uses this)</p>
-                          </div>
-                          <div className="text-lg font-bold mt-1">
-                            {passMeta.lPass ? 'PASS' : 'FAIL'}
-                            <span className="text-sm font-normal text-muted-foreground"> · same limit</span>
-                          </div>
-                          <div className="mt-1">
-                            {passMeta.lPass === true && (
-                              <span className="text-xs font-bold uppercase tracking-wide text-green-700 dark:text-green-300">
-                                In accepted range (live)
-                              </span>
-                            )}
-                            {passMeta.lPass === false && (
-                              <span className="text-xs font-bold uppercase tracking-wide text-red-700 dark:text-red-300">
-                                Out of range (live)
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Margin:{' '}
-                            <span className="font-mono font-semibold text-foreground">
-                              {passMeta.lMargin != null && passMeta.lMargin >= 0 ? '+' : ''}
-                              {passMeta.lMargin?.toFixed(1) ?? '—'} pts
-                            </span>
-                          </p>
-                          <ThresholdMeter rate={passMeta.lRate} threshold={threshold[0]} upper={passMeta.upper} />
-                        </>
-                      ) : (
-                        <p className="text-sm text-muted-foreground py-6">
-                          {livePaused
-                            ? 'Resume the camera for live readings.'
-                            : 'Live % appears when the camera stream is available.'}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Pass/fail flips instantly with the slider because it only compares your limit to the latest{' '}
-                    <span className="font-medium text-foreground">match vs template</span> (not edge fill). Edge fill is
-                    shown for edge tools so master and live use the same physical scale. Percentages refresh quickly when
-                    the scene or ROI changes (~32ms debounce).
-                  </p>
-                </div>
-              )}
 
               <div className="space-y-2">
                 <Slider
@@ -2599,17 +2501,31 @@ export default function Step3ToolConfiguration({
                 </div>
                 {panelToolType !== 'position_adjust' && (
                   <p className="text-xs text-muted-foreground pt-1">
-                    On the canvas, the ROI mask shows what the tool measures. Use the cards above while dragging this slider to
-                    see immediately if you are above or below your limit.
+                    On the canvas, the ROI mask shows what the tool measures. The judgment strip below updates instantly as
+                    you move the threshold.
                   </p>
                 )}
               </div>
 
               {panelToolType !== 'position_adjust' && (
+                <RealTimeJudgmentStrip
+                  snapshot={judgmentWithPipeline}
+                  threshold={threshold[0]}
+                  upperLimit={activeContextTool?.upperLimit}
+                  busy={judgmentBusy}
+                  hasMasterImage={!!masterImageData}
+                  hasJudgmentTarget={!!judgmentTarget}
+                  livePaused={livePaused}
+                  hasLiveFrame={!!wizardFrameLive}
+                  onApplySuggestedThreshold={(v) => setThreshold([v])}
+                />
+              )}
+
+              {panelToolType !== 'position_adjust' && (
                 <div className="space-y-3">
                   <div className="rounded-md border bg-muted/50 p-3 space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium">Master detail</span>
+                      <span className="text-sm font-medium">Master detail (pipeline)</span>
                       {previewBusy && passMeta.mRate == null && (
                         <span className="text-xs text-muted-foreground">Computing…</span>
                       )}

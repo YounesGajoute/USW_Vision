@@ -281,9 +281,13 @@ class ProgramManager:
         if not program:
             raise ValueError(f"Program with ID {program_id} not found")
         
-        # Validate config if present
+        # Merge partial config patches (e.g. toolTemplateId only) before validation.
         if 'config' in updates:
-            self.validate_program(updates['config'])
+            merged_config = dict(program.get('config') or {})
+            merged_config.update(updates['config'])
+            self.validate_program(merged_config)
+            updates = dict(updates)
+            updates['config'] = merged_config
         
         # Update program
         success = self.db.update_program(program_id, updates)

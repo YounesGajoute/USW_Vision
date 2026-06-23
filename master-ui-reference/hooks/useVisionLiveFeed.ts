@@ -52,7 +52,11 @@ export function useVisionLiveFeed(programId: number | null, enabled: boolean) {
       if (!mounted) return
       setConnected(true)
       setError(null)
-      socket.emit('subscribe_live_feed', { fps: 4, fullResolution: true })
+      socket.emit('subscribe_live_feed', {
+        fps: 4,
+        fullResolution: true,
+        useCaptureSettings: true,
+      })
     }
 
     const onDisconnect = () => {

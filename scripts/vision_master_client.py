@@ -17,6 +17,8 @@ Examples:
   ./scripts/vision-master.sh register-master 11
   ./scripts/vision-master.sh create-template "Line A" --tools tools.json
   ./scripts/vision-master.sh run-once 11
+  ./scripts/vision-master.sh recover
+  ./scripts/vision-master.sh delete-program 14
 """
 
 from __future__ import annotations
@@ -313,6 +315,59 @@ def cmd_create_template(
     return 0
 
 
+def cmd_delete_program(rest_base: str, remote_key: Optional[str], program_id: int) -> int:
+    """DELETE /remote/programs/:id — remove program from vision Pi (master operator)."""
+    r = requests.delete(
+        f"{rest_base}/remote/programs/{program_id}",
+        headers=_headers(remote_key),
+        timeout=120,
+    )
+    try:
+        body = r.json()
+    except ValueError:
+        print(r.text, file=sys.stderr)
+        r.raise_for_status()
+        return 1
+    print(json.dumps(body, indent=2))
+    if r.status_code == 200:
+        print(f"Program {program_id} deleted on vision Pi", file=sys.stderr)
+        return 0
+    print(f"Delete failed: HTTP {r.status_code}", file=sys.stderr)
+    return 1
+
+
+def cmd_recover(
+    rest_base: str,
+    remote_key: Optional[str],
+    *,
+    stop_feeds: bool = True,
+    probe_capture: bool = True,
+) -> int:
+    """POST /remote/camera/recover — stop live feeds and reopen CSI camera on vision Pi."""
+    r = requests.post(
+        f"{rest_base}/remote/camera/recover",
+        headers=_headers(remote_key),
+        json={"stopLiveFeeds": stop_feeds, "probeCapture": probe_capture},
+        timeout=120,
+    )
+    try:
+        body = r.json()
+    except ValueError:
+        print(r.text, file=sys.stderr)
+        r.raise_for_status()
+        return 1
+
+    print(json.dumps(body, indent=2))
+    if r.status_code == 200 and body.get("recovered"):
+        print("Camera recover: OK", file=sys.stderr)
+        return 0
+    print(
+        f"Camera recover: HTTP {r.status_code} — {body.get('message', body.get('error', 'failed'))}",
+        file=sys.stderr,
+    )
+    return 1 if r.status_code != 200 else 1
+
+
 def cmd_check(rest_base: str, key: Optional[str]) -> int:
     host = _host_from_rest_base(rest_base)
     port = urlparse(_http_root(rest_base)).port or 5000
@@ -481,6 +536,20 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     sub.add_parser("check", help="TCP + GET /remote/info with connectivity hints")
     sub.add_parser("info", help="GET /remote/info — discovery")
+    rec = sub.add_parser(
+        "recover",
+        help="POST /remote/camera/recover — stop live feeds + reopen CSI camera",
+    )
+    rec.add_argument(
+        "--keep-feeds",
+        action="store_true",
+        help="Do not stop active Socket.IO live feeds before recover",
+    )
+    rec.add_argument(
+        "--no-probe",
+        action="store_true",
+        help="Skip test capture after reconnect (metadata only)",
+    )
     sub.add_parser("programs", help="List programs")
 
     cap = sub.add_parser("capture", help="POST /camera/capture — save live frame to disk")
@@ -509,6 +578,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     r1.add_argument("program_id", type=int)
     r1.add_argument("--no-image", action="store_true", help="JSON only, no base64 image")
 
+    dprog = sub.add_parser(
+        "delete-program",
+        help="DELETE /remote/programs/:id — permanently remove a program on vision Pi",
+    )
+    dprog.add_argument("program_id", type=int, help="Program id on vision Pi")
+
     sk = sub.add_parser("socket", help="Socket.IO: continuous or single inspection + live feed")
     sk.add_argument("program_id", type=int)
     sk.add_argument("--single", action="store_true", help="Single shot (waits ~10s)")
@@ -523,6 +598,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         if args.cmd == "check":
             return cmd_check(rest_base, key)
+        if args.cmd == "recover":
+            return cmd_recover(
+                rest_base,
+                key,
+                stop_feeds=not args.keep_feeds,
+                probe_capture=not args.no_probe,
+            )
         if args.cmd == "info":
             cmd_info(rest_base, key)
         elif args.cmd == "programs":
@@ -537,6 +619,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return cmd_create_template(rest_base, key, args.name, args.tools, args.description)
         elif args.cmd == "run-once":
             cmd_run_once(rest_base, key, args.program_id, args.no_image)
+        elif args.cmd == "delete-program":
+            return cmd_delete_program(rest_base, key, args.program_id)
         elif args.cmd == "socket":
             cmd_socket_loop(rest_base, key, args.program_id, continuous=not args.single, fps=args.fps)
         return 0

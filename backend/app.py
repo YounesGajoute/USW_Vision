@@ -115,7 +115,13 @@ def create_app(config_path='config.yaml'):
         resources={
             r"/api/*": {
                 "origins": cors_origins,
-                "allow_headers": ["Content-Type", "Authorization", "X-Vision-Remote-Key"],
+                "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+                "allow_headers": [
+                    "Content-Type",
+                    "Authorization",
+                    "X-Vision-Remote-Key",
+                    "X-Vision-Local-Key",
+                ],
             }
         },
     )
@@ -297,6 +303,7 @@ def create_app(config_path='config.yaml'):
         gpio_controller,
         lighting=inspection_lighting,
         lighting_global=lighting_cfg,
+        lighting_settings=lighting_settings,
         tool_templates=tool_template_manager,
     )
     logger.info("WebSocket initialized")

@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "sources": [
+    "capture5.png",
+    "capture8.png"
+  ],
+  "description": "Matte black RBK-3 heat-shrink tube on white background.",
+  "gray_max": 72,
+  "gray_seed": 55,
+  "gray_p50_target": 45,
+  "sat_max": 63,
+  "sat_median_target": 24,
+  "gray_cap": 96,
+  "elong_min": 2.8,
+  "elong_max": 12.0,
+  "fill_min": 0.38,
+  "fill_max": 0.88,
+  "min_area_px": 6905,
+  "min_length_px": 252,
+  "min_height_px": 12,
+  "max_height_px": 130,
+  "max_width_frac": 0.55,
+  "morph_close_h": 25,
+  "morph_close_v": 5,
+  "profiles": [
+    {
+      "source": "capture5.png",
+      "aabb": [
+        999,
+        416,
+        339,
+        77
+      ],
+      "area": 19166.0,
+      "elong": 4.402597402597403,
+      "fill": 0.7342451059265218,
+      "gray_p5": 23,
+      "gray_p50": 37,
+      "gray_p90": 51,
+      "gray_p95": 55,
+      "sat_p50": 26,
+      "sat_p90": 48
+    },
+    {
+      "source": "capture8.png",
+      "aabb": [
+        557,
+        418,
+        337,
+        97
+      ],
+      "area": 18173.5,
+      "elong": 3.4742268041237114,
+      "fill": 0.5559515433326195,
+      "gray_p5": 42,
+      "gray_p50": 54,
+      "gray_p90": 59,
+      "gray_p95": 64,
+      "sat_p50": 23,
+      "sat_p90": 43
+    }
+  ],
+  "edge_profile": {
+    "half_width_median": 28.35,
+    "half_width_p90": 28.98,
+    "sources": [
+      "capture5.png",
+      "capture8.png"
+    ]
+  }
+}

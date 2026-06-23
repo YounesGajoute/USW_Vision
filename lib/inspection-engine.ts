@@ -197,12 +197,19 @@ async function processTool(
  * Scale any camera/master frame to the wizard canvas size (640×480) so ROI
  * coordinates match the interactive canvas used in tool configuration.
  */
+/** High-quality downscale for wizard canvas (640×480) from full-resolution captures. */
+export function enableHighQualityCanvasScaling(ctx: CanvasRenderingContext2D): void {
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+}
+
 export async function imageBase64ToWizardFrame640(imageBase64: string): Promise<string> {
   const img = await loadImage(imageBase64);
   const c = document.createElement('canvas');
   c.width = 640;
   c.height = 480;
   const ctx = c.getContext('2d')!;
+  enableHighQualityCanvasScaling(ctx);
   ctx.drawImage(img, 0, 0, 640, 480);
   return c.toDataURL('image/png');
 }

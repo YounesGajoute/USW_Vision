@@ -300,7 +300,58 @@ class CameraController:
         # Names of Picamera2 controls we skipped after libcamera said they are not advertised (log once each).
         self._controls_skip_logged: Set[str] = set()
         self._capture_lock = threading.Lock()
+        self._recovering = False
+        self._last_recover_monotonic = 0.0
         self._connect()
+
+    @staticmethod
+    def _is_recoverable_camera_error(exc: BaseException) -> bool:
+        """libcamera pipeline / V4L2 dequeue timeouts leave Picamera2 unusable until reconnect."""
+        msg = str(exc).lower()
+        needles = (
+            'timed out',
+            'timeout',
+            'pipeline',
+            'dequeue',
+            'frontend',
+            'camera frontend',
+        )
+        return any(n in msg for n in needles)
+
+    def _reconnect_unlocked(self) -> bool:
+        """Close and reopen CSI camera. Caller must hold ``_capture_lock``."""
+        now = time.monotonic()
+        if now - self._last_recover_monotonic < 2.0:
+            return self.camera is not None
+        self._last_recover_monotonic = now
+        logger.warning("CSI camera recover: closing and reopening Picamera2 pipeline")
+        try:
+            if self.camera:
+                try:
+                    self.camera.stop()
+                except Exception:
+                    pass
+                try:
+                    self.camera.close()
+                except Exception:
+                    pass
+            self.camera = None
+            time.sleep(0.35)
+            self._connect()
+            if self.camera:
+                logger.info("CSI camera recover: pipeline reopened successfully")
+                return True
+            logger.error("CSI camera recover: reopen failed — captures unavailable")
+            return False
+        except Exception as e:
+            logger.error("CSI camera recover failed: %s", e)
+            self.camera = None
+            return False
+
+    def recover_camera(self) -> bool:
+        """Public entry: reconnect after libcamera pipeline timeout (live feed / capture)."""
+        with self._capture_lock:
+            return self._reconnect_unlocked()
 
     def _connect(self):
         """Open the CSI camera via Picamera2."""
@@ -402,6 +453,7 @@ class CameraController:
         digital_gain: Optional[float] = None,
         for_stream: bool = False,
         live_preview: bool = False,
+        _allow_recover: bool = True,
     ) -> Optional[np.ndarray]:
         """Internal capture implementation (caller must hold _capture_lock when camera is open)."""
         if not self.camera:
@@ -484,6 +536,26 @@ class CameraController:
                 logger.error("Capture failed: %s", e)
                 # Live stream polls quickly; avoid filling logs with identical OpenCV errors.
                 self._capture_fail_log_next = now + 2.0
+            if (
+                _allow_recover
+                and not self._recovering
+                and self._is_recoverable_camera_error(e)
+            ):
+                self._recovering = True
+                try:
+                    if self._reconnect_unlocked():
+                        return self._capture_image_unlocked(
+                            brightness_mode=brightness_mode,
+                            focus_value=focus_value,
+                            exposure_time_us=exposure_time_us,
+                            analog_gain=analog_gain,
+                            digital_gain=digital_gain,
+                            for_stream=for_stream,
+                            live_preview=live_preview,
+                            _allow_recover=False,
+                        )
+                finally:
+                    self._recovering = False
             return None
     
     def get_camera_info(self) -> Dict:

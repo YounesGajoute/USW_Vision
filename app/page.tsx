@@ -83,8 +83,9 @@ export default function ProgramSelectionScreen() {
       await loadPrograms()
     } catch (error) {
       console.error("Failed to delete program:", error)
-      const message = error instanceof Error ? error.message : "Please try again."
-      alert(`Failed to delete program: ${message}`)
+      const message =
+        error instanceof Error ? error.message : "Please try again."
+      alert(`Failed to delete program.\n\n${message}`)
     } finally {
       setIsDeleting(false)
     }

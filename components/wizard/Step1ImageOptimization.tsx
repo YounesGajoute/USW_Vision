@@ -19,7 +19,7 @@ import { ws } from "@/lib/websocket"
 import { useToast } from "@/components/ui/use-toast"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import type { CameraInfo, ImageQuality } from "@/types"
-import { rawBase64ToImageDataUrl } from "@/lib/inspection-engine"
+import { enableHighQualityCanvasScaling, rawBase64ToImageDataUrl } from "@/lib/inspection-engine"
 import { DEFAULT_CAMERA_CAPTURE } from "@/lib/camera-defaults"
 
 interface Step1Props {
@@ -124,6 +124,7 @@ export default function Step1ImageOptimization({
         img.onload = () => {
           const ctx = canvasRef.current?.getContext("2d")
           if (ctx && canvasRef.current) {
+            enableHighQualityCanvasScaling(ctx)
             ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
             ctx.drawImage(img, 0, 0, canvasRef.current.width, canvasRef.current.height)
           }
@@ -168,6 +169,7 @@ export default function Step1ImageOptimization({
         if (!canvas) return
         const ctx = canvas.getContext("2d")
         if (!ctx) return
+        enableHighQualityCanvasScaling(ctx)
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
 
         ctx.fillStyle = "rgba(0,0,0,0.55)"
@@ -178,7 +180,7 @@ export default function Step1ImageOptimization({
         ctx.fillStyle = "#cbd5e1"
         ctx.font = "12px monospace"
         ctx.fillText(
-          `FPS: ${data.fps ?? "–"}  Lat: ${data.latencyMs ?? "–"}ms  (system defaults)`,
+          `FPS: ${data.fps ?? "–"}  Lat: ${data.latencyMs ?? "–"}ms  (capture exposure + lighting)`,
           14,
           50
         )
@@ -205,7 +207,13 @@ export default function Step1ImageOptimization({
     ws.on("live_frame", handleFrame)
     ws.on("live_feed_started", handleStarted)
 
-    const cancelPendingSubscribe = ws.subscribeLiveFeedWhenReady(4, true)
+    const cancelPendingSubscribe = ws.subscribeLiveFeedWhenReady(4, true, {
+      brightnessMode: d.brightnessMode,
+      focusValue: d.focusValue,
+      exposureTime: d.exposureTimeUs,
+      analogGain: d.analogGain,
+      digitalGain: d.digitalGain,
+    })
 
     return () => {
       mounted = false
@@ -214,7 +222,7 @@ export default function Step1ImageOptimization({
       ws.off("live_feed_started", handleStarted)
       ws.unsubscribeLiveFeed()
     }
-  }, [isPreviewActive])
+  }, [isPreviewActive, d.brightnessMode, d.focusValue, d.exposureTimeUs, d.analogGain, d.digitalGain])
 
   return (
     <div className="space-y-6">

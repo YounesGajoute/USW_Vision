@@ -9,6 +9,7 @@ Continuous inspection and live MJPEG-style streaming remain on Socket.IO:
   start_inspection, subscribe_live_feed (see scripts/vision_master_client.py).
 """
 
+import time
 import traceback
 from typing import Any, Optional
 
@@ -21,6 +22,8 @@ from src.hardware.gpio_controller import GPIOController
 from src.database.db_manager import DatabaseManager
 from src.utils.logger import get_logger
 from src.utils.remote_auth import require_remote_key
+from src.api.health import check_camera
+from src.api.websocket import stop_all_live_feeds
 
 logger = get_logger("remote_api")
 
@@ -78,15 +81,25 @@ def remote_info():
             "socketio_events": {
                 "start_inspection": {"programId": "int", "continuous": "bool"},
                 "stop_inspection": {},
-                "subscribe_live_feed": {"fps": "int optional"},
+                "subscribe_live_feed": {
+                    "fps": "int optional",
+                    "fullResolution": "bool optional",
+                    "useCaptureSettings": "bool optional (default true)",
+                    "brightnessMode": "normal|hdr|highgain optional",
+                    "exposureTime": "µs int optional",
+                    "analogGain": "float optional",
+                    "digitalGain": "float optional",
+                },
                 "unsubscribe_live_feed": {},
             },
             "rest": {
                 "programs": "GET/POST /programs",
-                "program": "GET/PUT/DELETE /programs/:id",
+                "program": "GET/PUT/DELETE /programs/:id (or DELETE /remote/programs/:id)",
                 "run_once": "POST /remote/inspection/run-once (may require X-Vision-Remote-Key)",
+                "camera_recover": "POST /remote/camera/recover (stop live feeds + reopen CSI camera)",
                 "camera_capture": "POST /camera/capture",
                 "health": "GET /health (same REST prefix as this blueprint: /api/... or /api/v1/...)",
+                "health_full": "GET /health/full?probe=capture",
             },
             "remote_auth_required": need_key,
             "require_remote_api_key_configured": bool(
@@ -157,3 +170,67 @@ def remote_run_inspection_once():
     except Exception as e:
         logger.error("remote run-once failed: %s\n%s", e, traceback.format_exc())
         return jsonify({"error": "Inspection failed", "detail": str(e)}), 500
+
+
+@remote_bp.route("/programs/<int:program_id>", methods=["DELETE"])
+@require_remote_key
+def remote_delete_program(program_id: int):
+    """
+    DELETE /api/remote/programs/:id
+    Permanently delete a program from the master Pi (same as DELETE /api/programs/:id).
+    """
+    try:
+        if tool_template_manager:
+            try:
+                tool_template_manager.delete_program_template(program_id)
+            except Exception as exc:
+                logger.warning("Could not delete program-owned template: %s", exc)
+
+        program_manager.delete_program(program_id)
+        return jsonify({"message": "Program deleted successfully", "programId": program_id}), 200
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        logger.error("remote delete program failed: %s\n%s", e, traceback.format_exc())
+        return jsonify({"error": "Delete failed", "detail": str(e)}), 500
+
+
+@remote_bp.route("/camera/recover", methods=["POST"])
+@require_remote_key
+def remote_camera_recover():
+    """
+    Recover CSI camera after libcamera pipeline timeout (master Pi operator action).
+
+    Body JSON (all optional):
+      stopLiveFeeds (bool, default true) — stop Socket.IO live preview threads first
+      probeCapture (bool, default true) — grab one test frame after reconnect
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        stop_feeds = data.get("stopLiveFeeds", True)
+        probe_capture = data.get("probeCapture", True)
+
+        feeds_stopped = stop_all_live_feeds() if stop_feeds else 0
+        time.sleep(0.25)
+
+        reopened = False
+        if camera_controller is not None:
+            reopened = bool(camera_controller.recover_camera())
+        else:
+            return jsonify({"error": "Camera controller not initialized"}), 503
+
+        cam_health = check_camera(probe_capture=bool(probe_capture))
+        ok = reopened and cam_health.get("status") == "healthy"
+
+        payload = {
+            "message": "Camera recovered" if ok else "Camera recover attempted; check camera status",
+            "recovered": ok,
+            "pipelineReopened": reopened,
+            "liveFeedsStopped": feeds_stopped,
+            "camera": cam_health,
+        }
+        return jsonify(payload), 200 if ok else 503
+
+    except Exception as e:
+        logger.error("remote camera recover failed: %s\n%s", e, traceback.format_exc())
+        return jsonify({"error": "Camera recover failed", "detail": str(e)}), 500

@@ -1,0 +1,50 @@
+{
+  "id": 13,
+  "name": "12345",
+  "description": "Specific tool configuration for reference 12345",
+  "template_schema_version": 2,
+  "roi_space": "wizard_640x480",
+  "roi_layout": {
+    "description": "ROIs in wizard 640\u00d7480 pixels; scaled to full master on run (e.g. 1456\u00d71088 IMX296).",
+    "width": 640,
+    "height": 480,
+    "reference_master": {
+      "width": 1456,
+      "height": 1088,
+      "note": "Typical register-master size; ROIs stretch by master_w/640 and master_h/480."
+    }
+  },
+  "tools": [
+    {
+      "id": "outline-presence-default",
+      "type": "outline",
+      "name": "Tube Presence Check",
+      "color": "#00B2E3",
+      "roi": {
+        "x": 200,
+        "y": 100,
+        "width": 240,
+        "height": 200
+      },
+      "threshold": 65
+    },
+    {
+      "id": "outline-alignment-default",
+      "type": "outline",
+      "name": "Tube Alignment Check",
+      "color": "#4CAF50",
+      "roi": {
+        "x": 180,
+        "y": 280,
+        "width": 280,
+        "height": 120
+      },
+      "threshold": 60
+    }
+  ],
+  "reference_image_path": null,
+  "program_id": null,
+  "owned_by_program": false,
+  "created_at": "2026-05-17T12:22:46.805586",
+  "updated_at": "2026-05-17T12:22:46.805586"
+}

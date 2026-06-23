@@ -25,6 +25,8 @@ The master backend should proxy these under e.g. `/api/vision/...` (see `docs/MA
 
 ## Files
 
+- `lib/toolJudgment.ts` — fast browser-side ROI judgment (master + live, template-aware)
+- `components/RealTimeJudgmentStrip.tsx` — threshold strip UI (metric, score, PASS/FAIL, suggested limit)
 - `lib/visionWizard.ts` — base64 helpers, mime detection
 - `services/visionService.ts` — master API client (adjust `VISION_API_PREFIX` if needed)
 - `hooks/useVisionLiveFeed.ts` — Socket.IO live frames via master WS proxy

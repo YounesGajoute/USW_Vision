@@ -66,6 +66,7 @@ import type { InspectionResultEvent } from "@/types"
 import {
   processInspection,
   extractMasterFeatures,
+  enableHighQualityCanvasScaling,
   rawBase64ToImageDataUrl,
   resolveToolRoisForImagePixels,
   resolveToolRoisForImageSize,
@@ -471,7 +472,14 @@ export default function RunInspectionPage() {
       ws.on("error", handleWSError)
       
       liveFeedSubscribeCancelRef.current?.()
-      liveFeedSubscribeCancelRef.current = ws.subscribeLiveFeedWhenReady(4, true)
+      const liveCaptureOpts = selectedProgram
+        ? captureOptionsFromConfig(selectedProgram.config)
+        : undefined
+      liveFeedSubscribeCancelRef.current = ws.subscribeLiveFeedWhenReady(
+        4,
+        true,
+        liveCaptureOpts
+      )
       
       if (process.env.NODE_ENV === "development") {
         console.log("WebSocket: live feed subscription scheduled")
@@ -943,6 +951,7 @@ export default function RunInspectionPage() {
     const img = new Image()
     img.onload = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height)
+      enableHighQualityCanvasScaling(ctx)
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
     }
     img.src = frameBase64.startsWith("data:") ? frameBase64 : rawBase64ToImageDataUrl(frameBase64)

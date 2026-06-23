@@ -146,6 +146,14 @@ export interface CaptureOptions {
   digitalGain?: number;
 }
 
+/** Socket.IO subscribe_live_feed — same exposure/lighting as capture when enabled. */
+export interface LiveFeedSubscribeOptions extends CaptureOptions {
+  fps?: number;
+  fullResolution?: boolean;
+  /** When true (default), preview uses manual exposure + API lighting like POST /camera/capture. */
+  useCaptureSettings?: boolean;
+}
+
 export interface CapturedImage {
   image: string; // Base64 (lossless PNG from camera API, or legacy JPEG)
   /** Wire encoding of `image` (`png` = lossless). */

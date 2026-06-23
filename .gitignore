@@ -126,6 +126,13 @@ backend/storage/image_history/*
 backend/storage/exports/*
 !backend/storage/exports/.gitkeep
 
+# Ruler calibration capture sessions (scripts/capture_ruler_calibration.py)
+backend/storage/Calibration/*
+!backend/storage/Calibration/.gitkeep
+
+backend/storage/Measurement/*
+!backend/storage/Measurement/.gitkeep
+
 # Temporary uploads
 uploads/
 temp/

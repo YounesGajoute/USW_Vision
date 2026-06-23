@@ -8,7 +8,7 @@ import { api } from '@/lib/api';
 import { ws } from '@/lib/websocket';
 import { useToast } from '@/hooks/use-toast';
 import type { CapturedImage, ImageQuality } from '@/types';
-import { rawBase64ToImageDataUrl } from '@/lib/inspection-engine';
+import { enableHighQualityCanvasScaling, rawBase64ToImageDataUrl } from '@/lib/inspection-engine';
 
 const CANVAS_W = 960;
 const CANVAS_H = 540;
@@ -92,6 +92,7 @@ export default function Step2MasterImage({
         const c = canvasRef.current;
         const cx = c.getContext('2d');
         if (!cx) return;
+        enableHighQualityCanvasScaling(cx);
         cx.drawImage(img, 0, 0, c.width, c.height);
       };
       img.src = dataUrlForCanvas(b64, mime);
@@ -138,6 +139,7 @@ export default function Step2MasterImage({
         if (!canvas || !viewLiveRef.current) return;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
+        enableHighQualityCanvasScaling(ctx);
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         setLiveFrameReceived(true);
 
@@ -189,7 +191,13 @@ export default function Step2MasterImage({
     ws.on('connect_error', handleConnectError);
     ws.on('error', handleSocketError);
     ws.on('warning', handleWarning);
-    const cancelPendingSubscribe = ws.subscribeLiveFeedWhenReady(4, true);
+    const cancelPendingSubscribe = ws.subscribeLiveFeedWhenReady(4, true, {
+      brightnessMode,
+      focusValue,
+      exposureTime: exposureTimeUs,
+      analogGain,
+      digitalGain,
+    });
 
     return () => {
       mounted = false;
@@ -201,7 +209,7 @@ export default function Step2MasterImage({
       ws.off('warning', handleWarning);
       ws.unsubscribeLiveFeed();
     };
-  }, [viewLive]);
+  }, [viewLive, brightnessMode, focusValue, exposureTimeUs, analogGain, digitalGain]);
 
   const handleCapture = async () => {
     setIsCapturing(true);
